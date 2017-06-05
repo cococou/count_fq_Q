@@ -1,0 +1,30 @@
+def query(bedfile, bamfile, qual=0, max_depth=2000000):
+    samfile = pysam.Samfile(bamfile, "rb")
+
+    for chrom, start, end, gene in load_bedfile(bedfile):
+        for pile in samfile.pileup(chrom, start, end, max_depth=max_depth, truncate=True):
+            if pile.pos < start or pile.pos > end:
+                continue
+            bases = {}
+            for p in pile.pileups:
+                if p.is_refskip or p.is_tail or p.is_head:
+                    continue
+                if p.indel > 0:     # insert
+                    ins = p.alignment.query_sequence[p.query_position+1:p.query_position+p.indel+1]
+                    key = "ins_" + ins
+                    bases[key] = bases.get(key, 0) + 1
+                    continue
+                elif p.is_del:      # deletion
+                    # print p.indel, p.query_position, p.alignment.cigarstring
+                    bases['del'] = bases.get('del', 0) + 1
+                    continue
+
+                b = p.alignment.query_sequence[p.query_position]
+                q = p.alignment.query_qualities[p.query_position]
+                if q < qual: continue
+                if b not in bases:
+                    bases[b] = {}
+                bases[b][q] = bases[b].get(q, 0) + 1
+            res = ";".join("%s:%d" % (b, sum(bases[b].values()) if not isinstance(bases[b], int) else bases[b]) for b in bases)
+            print (gene, chrom, "%d-%d" % (start, end), pile.pos+1, res, bases, sep="\t")
+
